@@ -20,6 +20,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_db() -> None:
     # Import models so they register on Base.metadata before create_all.
     from app.db.models import lbank_api_credentials  # noqa: F401
+    from app.db.models import lbank_widget_snapshot  # noqa: F401
     from app.db.models import lbank_widget_settings  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

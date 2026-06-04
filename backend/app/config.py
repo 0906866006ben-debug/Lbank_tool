@@ -32,12 +32,19 @@ class Settings(BaseSettings):
 
     db_url: str = Field(default="sqlite:///./lbank_widget.db", alias="LBANK_DB_URL")
 
+    # adapter: build widget summary from the configured LBank adapter.
+    # pushed: return the latest sanitized snapshot pushed by a trusted
+    # desktop sync process. This keeps LBank credentials off Railway.
+    widget_source: str = Field(default="adapter", alias="LBANK_WIDGET_SOURCE")
+    sync_token: str = Field(default="", alias="LBANK_SYNC_TOKEN")
+
     def public_dict(self) -> dict:
         """Safe-to-expose subset. Deliberately omits api_secret (and key)."""
         return {
             "mock_mode": self.mock_mode,
             "signature_method": self.signature_method,
             "base_url": self.base_url,
+            "widget_source": self.widget_source,
         }
 
 
