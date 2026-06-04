@@ -39,7 +39,7 @@ class ConfigActivity : Activity() {
             text = "LBank Widget 設定（唯讀）"
             textSize = 20f
         }
-        val hint = TextView(this).apply {
+        val help = TextView(this).apply {
             text = "輸入後端 API 網址，例如：\nhttps://your-app.up.railway.app\n\n" +
                 "本 App 為唯讀，只會 GET 持倉摘要，不會送出任何金鑰或交易。"
             setPadding(0, pad / 2, 0, pad)
@@ -65,7 +65,7 @@ class ConfigActivity : Activity() {
         }
 
         root.addView(title)
-        root.addView(hint)
+        root.addView(help)
         root.addView(input)
         root.addView(save)
         root.addView(status)
