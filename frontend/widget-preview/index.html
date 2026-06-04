@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LBank Futures Widget Preview (read-only)</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --line: #30363d; --text: #e6edf3;
+    --muted: #8b949e; --green: #2ea043; --red: #f85149;
+    --safe: #2ea043; --medium: #d29922; --high: #f85149; --unknown: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #010409; color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 24px;
+  }
+  .note {
+    max-width: 360px; font-size: 12px; color: var(--muted);
+    text-align: center; margin-bottom: 16px; line-height: 1.5;
+  }
+  /* Large home-screen widget (4x4-ish) */
+  .widget {
+    width: 360px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 20px; padding: 16px 18px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  .w-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .w-title { font-weight: 700; font-size: 15px; letter-spacing: .3px; }
+  .w-sub { font-size: 12px; color: var(--muted); }
+  .totals { display: flex; gap: 16px; margin-top: 6px; font-size: 14px; }
+  .totals .v { font-weight: 700; }
+  .metaline { display: flex; justify-content: space-between; font-size: 12px;
+    color: var(--muted); margin-top: 2px; }
+  .pos {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; margin-top: 12px;
+  }
+  .pos-head { display: flex; justify-content: space-between; align-items: center; }
+  .pos-sym { font-weight: 700; font-size: 14px; }
+  .side-long { color: var(--green); } .side-short { color: var(--red); }
+  .lev { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .pnl-row { display: flex; justify-content: space-between; font-size: 13px; margin-top: 6px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px;
+    font-size: 12px; margin-top: 6px; color: var(--muted); }
+  .grid b { color: var(--text); font-weight: 600; }
+  .risk-chip {
+    font-size: 10px; padding: 1px 7px; border-radius: 999px; color: #000; font-weight: 700;
+  }
+  .risk-safe { background: var(--safe); } .risk-medium { background: var(--medium); }
+  .risk-high { background: var(--high); color:#fff; } .risk-unknown { background: var(--unknown); color:#fff; }
+  .pos { border-left: 3px solid var(--line); }
+  .b-safe { border-left-color: var(--safe); } .b-medium { border-left-color: var(--medium); }
+  .b-high { border-left-color: var(--high); } .b-unknown { border-left-color: var(--unknown); }
+  .more { text-align: center; color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .controls { margin-top: 16px; display: flex; gap: 8px; }
+  input { background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 6px 8px; width: 240px; font-size: 12px; }
+  button { background: #238636; border: none; color: #fff; border-radius: 8px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .err { color: var(--red); font-size: 12px; margin-top: 8px; max-width: 360px; }
+</style>
+</head>
+<body>
+  <div class="note">
+    Read-only preview. 顯示 LBank 合約持倉與風險，<b>不含任何交易功能</b>。
+    部位 TP/SL 僅顯示價格、不顯示數量。
+  </div>
+
+  <div class="widget" id="widget">
+    <div class="w-head">
+      <span class="w-title">LBank Futures</span>
+      <span class="w-sub" id="updated">--</span>
+    </div>
+    <div class="totals">
+      <span>PnL <span class="v" id="totalPnl">--</span></span>
+      <span>ROE <span class="v" id="totalRoe">--</span></span>
+    </div>
+    <div class="metaline">
+      <span id="updatedFull">Updated --</span>
+      <span>Risk <span class="risk-chip risk-unknown" id="acctRisk">--</span></span>
+    </div>
+    <div id="positions"></div>
+    <div class="more" id="more" style="display:none"></div>
+  </div>
+
+  <div class="controls">
+    <input id="api" value="http://127.0.0.1:8000" />
+    <button onclick="load()">Reload</button>
+  </div>
+  <div class="err" id="err"></div>
+
+<script>
+const RISK_LABEL = { safe: "安全", medium: "中", high: "高", unknown: "未知" };
+
+function fmt(n) {
+  if (n === null || n === undefined) return "--";
+  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 8 });
+}
+function signed(n) {
+  if (n === null || n === undefined) return "--";
+  const v = Number(n);
+  const s = (v >= 0 ? "+" : "") + v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return s;
+}
+function cls(n) {
+  if (n === null || n === undefined) return "";
+  return Number(n) >= 0 ? "side-long" : "side-short";
+}
+
+async function load() {
+  const base = document.getElementById("api").value.replace(/\/$/, "");
+  const err = document.getElementById("err");
+  err.textContent = "";
+  try {
+    const res = await fetch(base + "/api/lbank/widget-summary");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+    render(d);
+  } catch (e) {
+    err.textContent = "無法連線後端：" + e.message + "（請先啟動 FastAPI）";
+  }
+}
+
+function render(d) {
+  const t = (d.updated_at || "--").replace("T", " ").slice(0, 19);
+  document.getElementById("updated").textContent = t.slice(11, 16) || "--";
+  document.getElementById("updatedFull").textContent = "Updated " + (t.slice(11, 16) || "--");
+
+  const pnlEl = document.getElementById("totalPnl");
+  pnlEl.textContent = signed(d.total_unrealized_pnl) + (d.total_unrealized_pnl != null ? " USDT" : "");
+  pnlEl.className = "v " + cls(d.total_unrealized_pnl);
+
+  const roeEl = document.getElementById("totalRoe");
+  roeEl.textContent = d.total_roe_percent != null ? signed(d.total_roe_percent) + "%" : "--";
+  roeEl.className = "v " + cls(d.total_roe_percent);
+
+  const ar = document.getElementById("acctRisk");
+  ar.textContent = RISK_LABEL[d.risk_level] || "未知";
+  ar.className = "risk-chip risk-" + (d.risk_level || "unknown");
+
+  const wrap = document.getElementById("positions");
+  wrap.innerHTML = "";
+  (d.positions || []).forEach(p => wrap.appendChild(posCard(p)));
+
+  const more = document.getElementById("more");
+  if (d.more_count > 0) { more.style.display = "block"; more.textContent = "+" + d.more_count + " more"; }
+  else { more.style.display = "none"; }
+}
+
+function posCard(p) {
+  const el = document.createElement("div");
+  el.className = "pos b-" + (p.risk_level || "unknown");
+  const sideLabel = p.side === "long" ? "Long" : "Short";
+  el.innerHTML = `
+    <div class="pos-head">
+      <span class="pos-sym">${p.symbol}
+        <span class="${p.side === "long" ? "side-long" : "side-short"}">${sideLabel}</span>
+        <span class="lev">${p.leverage != null ? p.leverage + "x" : "--"}</span>
+      </span>
+      <span class="risk-chip risk-${p.risk_level || "unknown"}">${RISK_LABEL[p.risk_level] || "未知"}</span>
+    </div>
+    <div class="pnl-row">
+      <span>未實現盈虧 <span class="${cls(p.unrealized_pnl)}">${signed(p.unrealized_pnl)}${p.unrealized_pnl != null ? " USDT" : ""}</span></span>
+      <span>ROE <span class="${cls(p.roe_percent)}">${p.roe_percent != null ? signed(p.roe_percent) + "%" : "--"}</span></span>
+    </div>
+    <div class="grid">
+      <span>現價 <b>${fmt(p.mark_price)}</b></span><span>強平 <b>${fmt(p.liquidation_price)}</b></span>
+      <span>進場 <b>${fmt(p.entry_price)}</b></span><span>距強平 <b>${p.liquidation_distance_percent != null ? p.liquidation_distance_percent.toFixed(1) + "%" : "--"}</b></span>
+      <span>全倉止盈 <b>${fmt(p.full_take_profit_price)}</b></span><span>全倉止損 <b>${fmt(p.full_stop_loss_price)}</b></span>
+      <span>定量止盈 <b>${fmt(p.partial_take_profit_price)}</b></span><span>定量止損 <b>${fmt(p.partial_stop_loss_price)}</b></span>
+    </div>`;
+  return el;
+}
+
+load();
+</script>
+</body>
+</html>
